@@ -176,9 +176,9 @@ void IntelHex::Parse(std::istream& input) throw(std::ios_base::failure, ParseErr
 					throw ParseError(l, 9, "end-of-file record has data", line);
 				return;
 			case 4: // extended linear address
-				if (count != 4)
+				if (count != 2)
 					throw ParseError(l, 9, "wrong size for extended address record", line);
-				extended = (buffer[4] << 24) | (buffer[5] << 16) | (buffer[6] << 8) | buffer[7];
+				extended = (buffer[4] << 24) | (buffer[5] << 16);
 				break;
 			default:
 				throw ParseError(l, 8, "unhandled record type", line);
@@ -196,11 +196,11 @@ void IntelHex::Generate(std::ostream& output) throw(std::ios_base::failure)
 		{
 			// Write extended linear address record
 			std::vector<uint8_t> xaddr;
-			xaddr[0] = line.first >> 24;
-			xaddr[1] = line.first >> 16;
-			xaddr[2] = line.first >> 8;
-			xaddr[3] = line.first;
+			xaddr.push_back(line.first >> 24);
+			xaddr.push_back(line.first >> 16);
 			WriteRecord(output, 4, 0, xaddr);
+
+			extended = line.first & 0xffff0000;
 		}
 
 		// Write data record
