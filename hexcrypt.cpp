@@ -7,8 +7,11 @@ int main(int argc, char* argv[])
 	if (argc != 4)
 	{
 		std::cerr << argv[0] << " input.hex keyfile output.hex\n"
-			<< "Encrypts or decrypts the data in an Intel Hex file.\n"
-			<< "Addresses are unchanged, but checksum is updated.\n";
+			"Encrypts or decrypts the data in an Intel Hex file.\n"
+			"Addresses are unchanged, but checksum is updated.\n\n"
+			"The [keyfile] is a raw binary file with the key data. The whole file is\n"
+			"used as key data, and can be of arbitrary size.\n"
+			;
 		exit(-1);
 	}
 
