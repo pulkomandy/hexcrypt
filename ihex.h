@@ -273,6 +273,10 @@ void IntelHex::Cipher(const uint8_t* key, int len)
 
 	for (auto& line: fData)
 	{
+		// Only cipher data lines, not extended addresses and other things.
+		if (line.type != 0)
+			continue;
+
 		arcfour_generate_stream(state, stream, line.data.size());
 		for(int i = 0; i < line.data.size(); i++) {
 			line.data[i] ^= stream[i];
