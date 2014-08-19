@@ -2,10 +2,10 @@
 
 echo --- BUILDING... ---
 mkdir -p build
-pushd build
-cmake ..
-make
-popd
+cd build
+	cmake ..
+	make
+cd ..
 
 echo --- TESTING... ---
 build/test
