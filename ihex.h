@@ -40,6 +40,87 @@ class ParseError: public std::exception
 };
 
 
+class HexRecord {
+	public:
+		HexRecord(uint8_t* data) {
+			size = data[0];
+			address = (data[1] << 8) | data[2];
+			type = data[3];
+			checksum = data[size + 4];
+			this->data.assign(&data[4], &data[size + 4]);
+		}
+
+		void Generate(std::ostream& output) const throw(std::ios_base::failure);
+
+		bool operator==(const HexRecord& other) const {
+			if (size != other.size) return false;
+			if (address != other.address) return false;
+			if (type != other.type) return false;
+			if (checksum != other.checksum) return false;
+			return true;
+		}
+
+		void UpdateChecksum() {
+			checksum = size + (address >> 8) + (address & 0xff) + type;
+			for(uint8_t i: data) {
+				checksum += i;
+			}
+			checksum = -checksum;
+		}
+
+	private:
+		uint8_t size;
+		uint16_t address;
+	public:
+		uint8_t type;
+		std::vector<uint8_t> data;
+	private:
+		uint8_t checksum;
+};
+
+
+void HexRecord::Generate(std::ostream& output) const throw(std::ios_base::failure)
+{
+	output << ':';
+
+	uint8_t buffer[size + 5];
+	buffer[0] = size;
+	buffer[1] = address >> 8;
+	buffer[2] = address;
+	buffer[3] = type;
+
+	for(int i = 0; i < size; i++)
+	{
+		buffer[i + 4] = data[i];
+	}
+
+	buffer[size + 4] = checksum;
+
+	for(int i = 0; i < size + 5; i++)
+	{
+		char n1, n2;
+		n1 = buffer[i] >> 4;
+		n2 = buffer[i] & 0xF;
+
+		if (n1 < 10)
+			n1 += '0';
+		else
+			n1 += 'A' - 10;
+
+		if (n2 < 10)
+			n2 += '0';
+		else
+			n2 += 'A' - 10;
+
+		output << n1 << n2;
+	}
+
+	output << "\r\n";
+}
+
+
+
+
 /// Read and write Intel hex format files.
 class IntelHex {
 	public:
@@ -57,7 +138,7 @@ class IntelHex {
 		void WriteRecord(std::ostream& output, const uint8_t type, const uint16_t address,
 			const std::vector<uint8_t> data) throw(std::ios_base::failure);
 
-		std::map<uint32_t, std::vector<uint8_t> > fData;
+		std::vector<HexRecord> fData;
 };
 
 
@@ -158,102 +239,21 @@ void IntelHex::Parse(std::istream& input) throw(std::ios_base::failure, ParseErr
 		if (count + 5 != byte)
 			throw ParseError(l, 2, "mismatched length", line);
 
-		uint16_t offset = (buffer[1] << 8) | buffer[2];
-		uint8_t type = buffer[3];
-
-		switch(type)
-		{
-			case 0: // data
-			{
-				std::pair<uint32_t, std::vector<uint8_t> > record;
-				record.first = extended | offset;
-				record.second = std::vector<uint8_t>(&buffer[4], &buffer[4 + count]);
-				fData.insert(record);
-				break;
-			}
-			case 1: // end of file
-				if (count != 0)
-					throw ParseError(l, 9, "end-of-file record has data", line);
-				return;
-			case 4: // extended linear address
-				if (count != 2)
-					throw ParseError(l, 9, "wrong size for extended address record", line);
-				extended = (buffer[4] << 24) | (buffer[5] << 16);
-				break;
-			default:
-				throw ParseError(l, 8, "unhandled record type", line);
-		}
+		HexRecord r = HexRecord(buffer);
+		fData.push_back(r);
+		if (r.type == 1)
+			return;
 	}
 }
 
 
 void IntelHex::Generate(std::ostream& output) throw(std::ios_base::failure)
 {
-	uint32_t extended = 0;
 	for (auto line: fData)
 	{
-		if ((line.first & 0xffff0000) != extended)
-		{
-			// Write extended linear address record
-			std::vector<uint8_t> xaddr;
-			xaddr.push_back(line.first >> 24);
-			xaddr.push_back(line.first >> 16);
-			WriteRecord(output, 4, 0, xaddr);
-
-			extended = line.first & 0xffff0000;
-		}
-
 		// Write data record
-		WriteRecord(output, 0, line.first, line.second);
+		line.Generate(output);
 	}
-
-	// Write end record
-	const std::vector<uint8_t> empty;
-	WriteRecord(output, 1, 0, empty);
-}
-
-
-void IntelHex::WriteRecord(std::ostream& output, const uint8_t type, const uint16_t address,
-	const std::vector<uint8_t> data) throw(std::ios_base::failure)
-{
-	output << ':';
-
-	const int length = data.size();
-
-	uint8_t buffer[length + 5];
-	buffer[0] = length;
-	buffer[1] = address >> 8;
-	buffer[2] = address;
-	buffer[3] = type;
-
-	for(int i = 0; i < length; i++)
-	{
-		buffer[i + 4] = data[i];
-	}
-
-	buffer[length + 4] = 0;
-
-	for(int i = 0; i < length + 5; i++)
-	{
-		char n1, n2;
-		n1 = buffer[i] >> 4;
-		n2 = buffer[i] & 0xF;
-
-		if (n1 < 10)
-			n1 += '0';
-		else
-			n1 += 'A' - 10;
-
-		if (n2 < 10)
-			n2 += '0';
-		else
-			n2 += 'A' - 10;
-
-		output << n1 << n2;
-		buffer[length + 4] -= buffer[i];
-	}
-
-	output << "\r\n";
 }
 
 
@@ -273,9 +273,10 @@ void IntelHex::Cipher(const uint8_t* key, int len)
 
 	for (auto& line: fData)
 	{
-		arcfour_generate_stream(state, stream, line.second.size());
-		for(int i = 0; i < line.second.size(); i++) {
-			line.second[i] ^= stream[i];
+		arcfour_generate_stream(state, stream, line.data.size());
+		for(int i = 0; i < line.data.size(); i++) {
+			line.data[i] ^= stream[i];
 		}
+		line.UpdateChecksum();
 	}
 }
